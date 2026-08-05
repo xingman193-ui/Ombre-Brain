@@ -244,6 +244,10 @@ class APIEmbeddingEngine(BaseEmbeddingEngine):
             response = await self._client.embeddings.create(
                 model=self.model,
                 input=text[:_MAX_INPUT_CHARS],
+                # OpenAI SDK 不传此参时会强制 encoding_format="base64"；
+                # OpenRouter / LiteLLM 等 OpenAI 兼容代理不认 base64，会返回空 data
+                # → 表现为「调用返回空向量 OB-E001」。显式要 float。
+                encoding_format="float",
             )
             if response.data and len(response.data) > 0:
                 vec = response.data[0].embedding
