@@ -66,7 +66,7 @@ async def test_default_breath_shows_footprint_after_each_memory(bucket_mgr, deca
 
 
 @pytest.mark.asyncio
-async def test_query_discovers_archive_and_prints_explicit_restore_call(
+async def test_query_does_not_reach_archive_but_keeps_the_file(
     bucket_mgr, decay_eng
 ):
     bucket_id = await bucket_mgr.create(
@@ -88,12 +88,25 @@ async def test_query_discovers_archive_and_prints_explicit_restore_call(
         tag_filter=[],
     )
 
-    assert "[query 命中·已删除到档案]" in output
-    assert "The hidden lantern memory is useful now." in output
-    assert "👣 Footprint：系统经系统直接创建 → 删除到档案" in output
-    assert f'trace(bucket_id="{bucket_id}", restore=True)' in output
+    # 归档=退出记忆：检索既不命中正文，也不提示它存在过。
+    assert "[query 命中·已删除到档案]" not in output
+    assert "The hidden lantern memory is useful now." not in output
+    assert bucket_id not in output
+    # 原文仍在盘上，显式 trace(restore=True) 可以请回来。
     assert archived_path.exists()
     assert await bucket_mgr.get(bucket_id) is None
+
+    # 按完整 bucket_id 直查也不能绕过这条边界。
+    exact_output = await surface_search(
+        query=bucket_id,
+        max_results=5,
+        max_tokens=10000,
+        domain="",
+        valence=-1,
+        arousal=-1,
+        tag_filter=[],
+    )
+    assert "The hidden lantern memory is useful now." not in exact_output
 
 
 @pytest.mark.asyncio

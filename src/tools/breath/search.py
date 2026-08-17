@@ -246,21 +246,6 @@ async def surface_search(
     if exact_bucket:
         meta = exact_bucket.get("metadata", {}) or {}
         is_archived = _is_archived(exact_bucket)
-        archived_original_kind = (
-            footprint_snapshot.original_kind(exact_id, meta)
-            if is_archived and footprint_snapshot is not None
-            else "dynamic"
-        )
-        if (
-            is_archived
-            and archived_original_kind not in ("feel", "plan", "letter")
-            and _bucket_has_tags(meta, tag_filter)
-            and _bucket_in_created_range(exact_bucket, created_from, created_to)
-        ):
-            rendered, entry_tokens = _render_archived_hit(
-                exact_bucket, _footprint(exact_bucket)
-            )
-            return rendered if entry_tokens <= max_tokens else _BUDGET_NOTICE
         if (
             not is_archived
             and meta.get("type") not in ("feel", "plan", "letter")
@@ -299,16 +284,11 @@ async def surface_search(
         "vector_scores": vector_scores,
     }
     try:
-        try:
-            matches = await rt.bucket_mgr.search(
-                query, include_archive=True, **search_kwargs
-            )
-        except TypeError as exc:
-            # Lightweight third-party/test managers may predate the archive
-            # option.  Preserve active search there; production supports it.
-            if "include_archive" not in str(exc):
-                raise
-            matches = await rt.bucket_mgr.search(query, **search_kwargs)
+        # 归档=退出记忆。检索只看在架的桶，档案区不再被 query 命中，
+        # 原文留在盘上，要看得显式 trace(restore=True) 把它请回来。
+        matches = await rt.bucket_mgr.search(
+            query, include_archive=False, **search_kwargs
+        )
     except Exception as e:
         rt.logger.error(f"Search failed / 检索失败: {e}")
         return "检索过程出错，请稍后重试。"
@@ -317,14 +297,9 @@ async def surface_search(
     for bucket in matches:
         meta = bucket.get("metadata", {}) or {}
         if _is_archived(bucket):
-            original_kind = (
-                footprint_snapshot.original_kind(str(bucket.get("id") or ""), meta)
-                if footprint_snapshot is not None
-                else "dynamic"
-            )
-            if original_kind in ("feel", "plan", "letter"):
-                continue
-        elif not _can_surface_search(bucket) or meta.get("type") in ("feel", "plan", "letter"):
+            # 双保险：即便底层管理器把档案区带了出来，这里也不放行。
+            continue
+        if not _can_surface_search(bucket) or meta.get("type") in ("feel", "plan", "letter"):
             continue
         eligible_matches.append(bucket)
     matches = eligible_matches
